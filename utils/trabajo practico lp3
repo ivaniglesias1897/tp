@@ -1,0 +1,17 @@
+---------------------------Trabajo Practico 1--------------------------------
+1. Crear una tabla auditoria con sus atributos necesarios
+2. Crear una función en base de datos que permita controlar todos los eventos sobre todas las 
+tablas de la base de datos, los eventos: insert, update, delete
+3. Crear un dispador que permita registrar todos los eventos mencionados.
+4. Tener en cuenta que se debe capturar el usuario quien realizo dicho evento que esta registrado en la web.
+
+---------------------------Trabajo Practico 2--------------------------------
+1. Modificar los trigger de cuentas a cobrar y cuentas a pagar, debe permitir realizar modificaciones y borrados de cuentas.
+2. Como deberia funcionar: si el usuario modifica algun dato de compra o ventas que tienen
+condicion CREDITO se deben actualizar todas las cuentas relacionadas a esa compra o venta.
+3. Si el usuario borra una compra o venta que tiene condicion CREDITO se deben borrar todas las cuentas relacionadas a esa compra o venta.
+4. Tener en cuenta que si la compra o venta ya tiene pagos realizados no se podra modificar ni borrar.
+
+
+---------------------------Trabajo Practico 3--------------------------------
+1. Implementar vista de la auditoria, tiene que mostrar un listado, y tambien el detalle de cada accion.

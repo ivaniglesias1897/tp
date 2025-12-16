@@ -1,0 +1,78 @@
+[
+    {
+        "name": "id_producto",
+        "dbType": "integer,true",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": false,
+        "fillable": false,
+        "primary": true,
+        "inForm": false,
+        "inIndex": false,
+        "inView": false
+    },
+    {
+        "name": "descripcion",
+        "dbType": "string",
+        "htmlType": "text",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "name": "precio",
+        "dbType": "decimal",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "name": "tipo_iva",
+        "dbType": "integer,false",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "name": "id_marca",
+        "dbType": "integer,false",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "type": "relation",
+        "relation": "mt1,Marca,id_marca"
+    },
+    {
+        "type": "relation",
+        "relation": "mtm,Compra,detalle_compras"
+    },
+    {
+        "type": "relation",
+        "relation": "mtm,Venta,detalle_ventas"
+    },
+    {
+        "type": "relation",
+        "relation": "mtm,Sucursale,stocks"
+    }
+]

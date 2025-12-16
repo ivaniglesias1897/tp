@@ -1,0 +1,9 @@
+-- Crear un listado stocks
+1. Crear el controlador de stock
+2. Crear la ruta 
+3. Crear el html solo con la opcion index y table blade
+5. Poseer el buscador generico
+6. Columna de Tabla
+- Nombre del producto
+- Sucursal
+- Cantidad en stock

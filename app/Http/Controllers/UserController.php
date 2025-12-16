@@ -1,0 +1,359 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
+use RealRashid\SweetAlert\Facades\Alert;
+
+class UserController extends Controller
+{
+    public function __construct()
+    {
+        // validar que el usuario este autenticado
+        $this->middleware('auth');
+        // validar permisos para cada accion
+        $this->middleware('permission:users index')->only(['index']);
+        $this->middleware('permission:users create')->only(['create', 'store']);
+        $this->middleware('permission:users edit')->only(['edit', 'update']);
+        $this->middleware('permission:users destroy')->only(['destroy']);
+    }
+    
+    public function index(Request $request)
+    {
+        // 1. Obtenemos el término de búsqueda
+        $buscar = $request->get('buscar');
+
+        // 2. Definimos la consulta base (users, roles, sucursales)
+        $sqlBase = 'SELECT u.*, r.name as rol, s.descripcion as sucursal 
+                    FROM users u 
+                    LEFT JOIN roles r ON u.role_id = r.id 
+                    LEFT JOIN sucursales s ON u.id_sucursal = s.id_sucursal';
+        
+        $sqlWhere = ''; 
+        $bindings = []; 
+        // Orden por defecto: ID ascendente
+        $sqlOrderBy = ' ORDER BY u.id ASC'; 
+
+        // 3. Si hay un término de búsqueda, construimos el WHERE y el ORDER BY con prioridad
+        if (!empty($buscar)) {
+            
+            $searchTerm = '%' . $buscar . '%';
+            $buscar_trim = trim($buscar);
+            
+            // 1. Los Bindings para el WHERE (9 placeholders 'ILIKE')
+            $bindings = [
+                $searchTerm, // 1. u.id (Para filtro ILIKE)
+                $searchTerm, // 2. u.name (Nombre/Apellido)
+                $searchTerm, // 3. u.email (Username)
+                $searchTerm, // 4. u.ci (Nro Doc.)
+                $searchTerm, // 5. u.telefono
+                $searchTerm, // 6. fecha_ingreso (en formato DD/MM/YYYY)
+                $searchTerm, // 7. r.name (Rol)
+                $searchTerm, // 8. s.descripcion (Sucursal)
+                $searchTerm  // 9. estado (convertido a 'Activo' o 'Inactivo')
+            ];
+
+            // 2. Construimos la consulta WHERE
+            $sqlWhere = " WHERE (
+                                     CAST(u.id AS TEXT) ILIKE ? 
+                                     OR u.name ILIKE ? 
+                                     OR u.email ILIKE ? 
+                                     OR u.ci ILIKE ? 
+                                     OR u.telefono ILIKE ? 
+                                     OR to_char(u.fecha_ingreso, 'DD/MM/YYYY') ILIKE ? 
+                                     OR r.name ILIKE ? 
+                                     OR s.descripcion ILIKE ? 
+                                     OR (CASE WHEN u.estado = true THEN 'Activo' ELSE 'Inactivo' END) ILIKE ?
+                                 )";
+
+            // 3. Construimos el ORDER BY (Prioridad para ID exacto)
+            $sqlOrderBy = ' ORDER BY 
+                                     CASE WHEN CAST(u.id AS TEXT) = ? THEN 0 ELSE 1 END ASC, 
+                                     u.id ASC';
+                                     
+            // 4. AÑADIMOS el binding exacto AL FINAL del array (décimo placeholder).
+            $bindings[] = $buscar_trim; 
+        }
+
+        // 4. Ejecutamos la consulta UNA SOLA VEZ
+        $users = DB::select(
+            $sqlBase . $sqlWhere . $sqlOrderBy,
+            $bindings
+        );
+        
+        // --- Lógica de Paginación Manual ---
+
+        //Definimos los valores de paginación
+        $page = $request->input('page', 1);      // página actual (por defecto 1)
+        $perPage = 10;                         // cantidad de registros por página
+        $total = count($users);                  // total de registros
+        
+        //Cortamos el array para solo devolver los registros de la página actual
+        $items = array_slice($users, ($page - 1) * $perPage, $perPage);
+        
+        //Creamos el paginador manualmente
+        $users = new LengthAwarePaginator(
+            $items, 
+            $total, 
+            $perPage, 
+            $page, 
+            [
+                'path' => $request->url(), // mantiene la ruta base
+            ]
+        );
+        
+        // Adjuntamos los parámetros de búsqueda a la paginación
+        $users->appends($request->query()); 
+        
+        // si la accion es buscardor entonces significa que se debe recargar mediante ajax la tabla
+        if ($request->ajax()) {
+            return view('users.table')->with('users', $users);
+        }
+        
+        return view('users.index')->with('users', $users);
+    }
+
+    public function create()
+    {
+        $roles = DB::table('roles')->pluck('name', 'id');
+        $sucursales = DB::table('sucursales')->pluck('descripcion', 'id_sucursal');
+
+        return view('users.create')->with('roles', $roles)->with('sucursales', $sucursales);
+    }
+
+    /**
+     * Almacena un nuevo usuario, validando unicidad de email y CI.
+     */
+    public function store(Request $request)
+    {
+        $input = $request->all();
+
+        // Validar los datos del formulario
+        $validacion = Validator::make($input, [
+            'name' => 'required',
+            // --- MODIFICACIÓN AQUÍ: Se eliminó '|email' para permitir Nick Names ---
+            'email' => 'required|unique:users,email', 
+            // -----------------------------------------------------------------------
+            'password' => 'required|min:6',
+            'ci' => 'required|unique:users,ci',
+            'fecha_ingreso' => 'required|date|before_or_equal:today', // Fecha de ingreso no puede ser futura
+            'role_id' => 'required|exists:roles,id',
+            'id_sucursal' => 'required|exists:sucursales,id_sucursal',
+        ], [
+            'name.required' => 'El campo Nombre es obligatorio.',
+            'email.required' => 'El campo Nick Name (usuario) es obligatorio.', // Mensaje modificado
+            'email.email' => 'El Email no tiene un formato válido.', // Este mensaje ya no debería salir
+            'email.unique' => 'El Nick Name (usuario) ya está en uso.', // Mensaje modificado
+            'password.required' => 'El campo Contraseña es obligatorio.',
+            'password.min' => 'La Contraseña debe tener al menos 6 caracteres.',
+            'ci.required' => 'El campo Nro Documento es obligatorio.',
+            'ci.unique' => 'El Nro Documento ya está en uso.',
+            'fecha_ingreso.required' => 'El campo Fecha de Ingreso es obligatorio.',
+            'fecha_ingreso.date' => 'El campo Fecha de Ingreso debe ser una fecha válida.',
+            'fecha_ingreso.before_or_equal' => 'La Fecha de Ingreso no puede ser posterior a la fecha actual.',
+            'role_id.required' => 'El campo Rol es obligatorio.',
+            'role_id.exists' => 'El Rol seleccionado no es válido.',
+            'id_sucursal.required' => 'El campo Sucursal es obligatorio.',
+            'id_sucursal.exists' => 'La Sucursal seleccionada no es válida.',
+        ]);
+
+        if ($validacion->fails()) {
+            return redirect()->back()->withErrors($validacion)->withInput();
+        }
+
+        // Si la validación pasa, guardar el usuario
+        $contrasena = Hash::make($input['password']);
+
+        // Insertar el nuevo usuario en la base de datos utilizando el modelo User
+        $usuario = new User();
+        $usuario->role_id = $input['role_id'];
+        $usuario->name = $input['name'];
+        $usuario->email = $input['email'];
+        $usuario->password = $contrasena;
+        $usuario->ci = $input['ci'];
+        $usuario->direccion = $input['direccion'] ?? null;
+        $usuario->telefono = $input['telefono'] ?? null;
+        $usuario->fecha_ingreso = $input['fecha_ingreso'];
+        $usuario->id_sucursal = $input['id_sucursal'];
+        $usuario->save();
+        
+        // Asignar el rol al usuario
+        $usuario->roles()->sync($input['role_id']);
+
+        Alert::toast('Usuario creado correctamente', 'success');
+
+        return redirect(route('users.index'));
+    }
+
+    public function edit($id) 
+    {
+        // Obtener los datos del usuario
+        $users = User::find($id); // Usamos el modelo para recuperar el usuario
+
+        if(empty($users)){
+            Alert::toast('Usuario no encontrado.', 'error'); // Usar SweetAlert para consistencia
+            return redirect(route('users.index'));
+        }
+
+        $roles = DB::table('roles')->pluck('name', 'id');
+        $sucursales = DB::table('sucursales')->pluck('descripcion', 'id_sucursal');
+
+        return view('users.edit')->with('users', $users)->with('roles', $roles)->with('sucursales', $sucursales);
+    }
+
+    /**
+     * Actualiza un usuario existente, validando unicidad de email/CI (ignorando el ID).
+     */
+    public function update(Request $request, $id) 
+    {
+        $input = $request->all();
+        // Obtener los datos del usuario usando el modelo
+        $usuario = User::find($id);
+
+        if(empty($usuario)){
+            Alert::toast('Usuario no encontrado.', 'error');
+            return redirect(route('users.index'));
+        }
+
+        // Validaciones con exclusión del registro actual
+        $validacion = Validator::make($input, [
+            'name' => 'required',
+            // --- MODIFICACIÓN AQUÍ: Se eliminó '|email' para permitir Nick Names ---
+            'email' => 'required|unique:users,email,' . $id, 
+            // -----------------------------------------------------------------------
+            'password' => 'nullable|min:6', // Opcional y mínimo 6
+            'ci' => 'required|unique:users,ci,' . $id, 
+            'fecha_ingreso' => 'required|date|before_or_equal:today',
+            'role_id' => 'required|exists:roles,id',
+            'id_sucursal' => 'required|exists:sucursales,id_sucursal',
+        ], [
+            'name.required' => 'El campo Nombre es obligatorio.',
+            'email.required' => 'El campo Nick Name (usuario) es obligatorio.', // Mensaje modificado
+            'email.email' => 'El Email no tiene un formato válido.', // Este mensaje ya no debería salir
+            'email.unique' => 'El Nick Name (usuario) ya está en uso.', // Mensaje modificado
+            'password.min' => 'La Contraseña debe tener al menos 6 caracteres.',
+            'ci.required' => 'El campo Nro Documento es obligatorio.',
+            'ci.unique' => 'El Nro Documento ya está en uso.',
+            'fecha_ingreso.required' => 'El campo Fecha de Ingreso es obligatorio.',
+            'fecha_ingreso.date' => 'El campo Fecha de Ingreso debe ser una fecha válida.',
+            'fecha_ingreso.before_or_equal' => 'La Fecha de Ingreso no puede ser posterior a la fecha actual.',
+            'role_id.required' => 'El campo Rol es obligatorio.',
+            'role_id.exists' => 'El Rol seleccionado no es válido.',
+            'id_sucursal.required' => 'El campo Sucursal es obligatorio.',
+            'id_sucursal.exists' => 'La Sucursal seleccionada no es válida.',
+        ]);
+
+        if ($validacion->fails()) {
+            Alert::toast('Error de validación.', 'error'); // Usar SweetAlert para consistencia
+            return redirect()->back()->withErrors($validacion)->withInput();
+        }
+
+        // --- LÓGICA DE CONTRASEÑA ---
+        $contrasena = $usuario->password; // Mantenemos la actual por defecto
+        
+        // Solo actualizamos la contraseña si se proporcionó una nueva Y es diferente a la actual (aunque Hash::check no es 100% necesario aquí, lo simplificamos)
+        if (!empty($input['password'])) {
+            $contrasena = Hash::make($input['password']); 
+        }
+
+        // Actualizar el usuario utilizando el modelo User (limpiamos el código duplicado)
+        $usuario->role_id = $input['role_id'];
+        $usuario->name = $input['name'];
+        $usuario->email = $input['email'];
+        $usuario->password = $contrasena;
+        $usuario->ci = $input['ci'];
+        $usuario->direccion = $input['direccion'] ?? null;
+        $usuario->telefono = $input['telefono'] ?? null;
+        $usuario->fecha_ingreso = $input['fecha_ingreso'];
+        $usuario->id_sucursal = $input['id_sucursal'];
+        $usuario->save();
+        
+        // Sincronizar el rol
+        $usuario->roles()->sync($input['role_id']);
+
+        Alert::toast('Usuario actualizado correctamente', 'success');
+
+        return redirect(route('users.index'));
+    }
+
+    /**
+     * Alterna el estado (Activo/Inactivo) del usuario.
+     */
+    public function destroy($id) 
+    {
+        // Obtenemos los datos del usuario usando el modelo
+        $users = User::find($id);
+
+        if(empty($users)){
+            Alert::toast('Usuario no encontrado.', 'error'); // Usar SweetAlert para consistencia
+            return redirect(route('users.index'));
+        }
+
+        // validar si debe inactivar o activar segun lo recuperado en la consulta
+        $estado = $users->estado == false ? true : false;
+        
+        // Actualizamos el estado
+        $users->estado = $estado;
+        $users->save();
+        
+        // Generar mensaje segun estado del usuario
+        $mensaje = $estado == true ? 'Usuario activado exitosamente.' : 'Usuario inactivado exitosamente.';
+
+        Alert::toast($mensaje, 'success');
+
+        return redirect(route('users.index'));
+    }
+
+    public function perfil()
+    {
+        // Mostrar el perfil del usuario autenticado
+        return view('users.profile');
+    }
+
+    public function cambiarPassword(Request $request)
+    {
+        $input = $request->all();
+
+        ##validar datos de contraseña utilizando validate de laravel
+        $validator = Validator::make(
+            $request->all(),
+            [
+                'password' => 'required|min:6',
+                'confirm-password' => 'required|same:password',
+            ],
+            [
+                'password.required'      => 'La contraseña es requerida',
+                'password.min'           => 'Debe tener al menos 6 dígitos la contraseña',
+                'confirm-password.required' => 'La confirmación de contraseña es requerida',
+                'confirm-password.same'    => 'Las contraseñas no coinciden',
+            ]
+        );
+
+        # verificar si la validación falla
+        if ($validator->fails()) {
+
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        #Actualizar la contraseña del usuario en session
+        DB::update('UPDATE users SET password = ? WHERE id = ?', 
+        [
+            Hash::make($input['password']), // utilizar Hash para encriptar la contraseña
+            auth()->user()->id
+        ]);
+
+        // mostrar mensaje de exito
+        Alert::toast('Contraseña actualizada correctamente.!', 'success');
+
+        // quedarse en el mismo formulario profile
+        return redirect()->back();
+    }
+}

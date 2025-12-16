@@ -1,0 +1,9 @@
+Tarea 18 y 19 de septiembre
+- Crear controlador de roles
+- Hacer que guarde los datos de name y guard_name que seria fijo guard_name=web
+- Agregar la opcion al menu
+
+------------------------------------
+- En usuario agregar el select de roles
+- Modificar el controlador de UserController y agregar la logica de la consulta de roles utilizando la funcionalidad pluck()
+- Modificar sus funciones de create, edit, store y update

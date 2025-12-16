@@ -1,0 +1,50 @@
+[
+    {
+        "name": "id_ciudad",
+        "dbType": "integer,true",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": false,
+        "fillable": false,
+        "primary": true,
+        "inForm": false,
+        "inIndex": false,
+        "inView": false
+    },
+    {
+        "name": "descripcion",
+        "dbType": "string",
+        "htmlType": "text",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "name": "id_departamento",
+        "dbType": "integer,false",
+        "htmlType": "number",
+        "validations": "",
+        "searchable": true,
+        "fillable": true,
+        "primary": false,
+        "inForm": true,
+        "inIndex": true,
+        "inView": true
+    },
+    {
+        "type": "relation",
+        "relation": "mt1,Departamento,id_departamento"
+    },
+    {
+        "type": "relation",
+        "relation": "1tm,Cliente,id_ciudad"
+    },
+    {
+        "type": "relation",
+        "relation": "1tm,Sucursale,id_ciudad"
+    }
+]
